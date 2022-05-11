@@ -25,10 +25,10 @@ tensorflow.keras.backend.set_floatx("float32")
 DATA_DIRECTORY = Path().absolute() / "LUNA22 prequel"
 
 # This should point at a directory to put the preprocessed/generated datasets from the source data
-GENERATED_DATA_DIRECTORY = Path().absolute()
+GENERATED_DATA_DIRECTORY = Path().absolute() / "generated_data"
 
 # This should point at a directory to store the training output files
-TRAINING_OUTPUT_DIRECTORY = Path().absolute()
+TRAINING_OUTPUT_DIRECTORY = Path().absolute() / "training_output"
 
 # This should point at the pretrained model weights file for the VGG16 model.
 # The file can be downloaded here:
