@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Tuple
 from enum import Enum, unique
+import sys
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -22,13 +23,13 @@ tensorflow.keras.backend.set_floatx("float32")
 
 
 # This should point at the directory containing the source LUNA22 prequel dataset
-DATA_DIRECTORY = Path().absolute() / "LUNA22 prequel"
+DATA_DIRECTORY = Path().absolute() / "LUNA22 prequel" #"$TMPDIR/input_obajo"
 
 # This should point at a directory to put the preprocessed/generated datasets from the source data
 GENERATED_DATA_DIRECTORY = Path().absolute() / "generated_data"
 
 # This should point at a directory to store the training output files
-TRAINING_OUTPUT_DIRECTORY = Path().absolute() / "training_output"
+TRAINING_OUTPUT_DIRECTORY = Path().absolute() / "training_output" #"$TMPDIR/output_obajo"
 
 # This should point at the pretrained model weights file for the VGG16 model.
 # The file can be downloaded here:
@@ -63,7 +64,7 @@ class MLProblem(Enum):
 
 
 # Here you can switch the machine learning problem to solve
-problem = MLProblem.malignancy_prediction
+problem = MLProblem.nodule_type_prediction
 
 # Configure problem specific parameters
 if problem == MLProblem.malignancy_prediction:
