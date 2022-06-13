@@ -5,9 +5,14 @@ import sys
 
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy import ndimage
 
+import tensorflow as tf
 import tensorflow.keras
+from tensorflow.keras import layers
 from tensorflow.keras.applications import VGG16
+from tensorflow.keras.applications import ResNet152
+from tensorflow.keras.applications import EfficientNetB5
 from tensorflow.keras.optimizers import SGD
 from tensorflow.keras.losses import categorical_crossentropy
 from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping, TerminateOnNaN
@@ -16,31 +21,31 @@ from balanced_sampler import sample_balanced, UndersamplingIterator
 from data import load_dataset
 from utils import maybe_download_vgg16_pretrained_weights
 
+gpus = tf.config.experimental.list_physical_devices('GPU')
+tf.config.experimental.set_memory_growth(gpus[0], True)
 
 # Enforce some Keras backend settings that we need
 tensorflow.keras.backend.set_image_data_format("channels_first")
 tensorflow.keras.backend.set_floatx("float32")
 
-
 # This should point at the directory containing the source LUNA22 prequel dataset
-DATA_DIRECTORY = Path().absolute() / "LUNA22 prequel" #"$TMPDIR/input_obajo"
+DATA_DIRECTORY = Path().absolute() / "LUNA22 prequel"  # "$TMPDIR/input_obajo"
 
 # This should point at a directory to put the preprocessed/generated datasets from the source data
 GENERATED_DATA_DIRECTORY = Path().absolute() / "generated_data"
 
 # This should point at a directory to store the training output files
-TRAINING_OUTPUT_DIRECTORY = Path().absolute() / "training_output" #"$TMPDIR/output_obajo"
+TRAINING_OUTPUT_DIRECTORY = Path().absolute() / "training_output"  # "$TMPDIR/output_obajo"
 
 # This should point at the pretrained model weights file for the VGG16 model.
 # The file can be downloaded here:
 # https://storage.googleapis.com/tensorflow/keras-applications/vgg16/vgg16_weights_tf_dim_ordering_tf_kernels.h5
 PRETRAINED_VGG16_WEIGHTS_FILE = (
-    Path().absolute()
-    / "pretrained_weights"
-    / "vgg16_weights_tf_dim_ordering_tf_kernels.h5"
+        Path().absolute()
+        / "pretrained_weights"
+        / "vgg16_weights_tf_dim_ordering_tf_kernels.h5"
 )
 maybe_download_vgg16_pretrained_weights(PRETRAINED_VGG16_WEIGHTS_FILE)
-
 
 # Load dataset
 # This method will generate a preprocessed dataset from the source data if it is not present (only needs to be done once)
@@ -64,7 +69,7 @@ class MLProblem(Enum):
 
 
 # Here you can switch the machine learning problem to solve
-problem = MLProblem.nodule_type_prediction
+problem = MLProblem.malignancy_prediction
 
 # Configure problem specific parameters
 if problem == MLProblem.malignancy_prediction:
@@ -131,7 +136,7 @@ print(
 
 
 def clip_and_scale(
-    data: np.ndarray, min_value: float = -1000.0, max_value: float = 400.0
+        data: np.ndarray, min_value: float = -1000.0, max_value: float = 400.0
 ) -> np.ndarray:
     data = (data - min_value) / (max_value - min_value)
     data[data > 1] = 1.0
@@ -140,11 +145,18 @@ def clip_and_scale(
 
 
 def random_flip_augmentation(
-    input_sample: np.ndarray, axis: Tuple[int, ...] = (1, 2)
+        input_sample: np.ndarray, axis: Tuple[int, ...] = (1, 2)
 ) -> np.ndarray:
     for ax in axis:
         if np.random.random_sample() > 0.5:
             input_sample = np.flip(input_sample, axis=ax)
+    return input_sample
+
+
+def random_rotate_augmentation(
+        input_sample: np.ndarray
+) -> np.ndarray:
+    input_sample = ndimage.rotate(input_sample, int(np.random.random_sample() * 360), reshape=False)
     return input_sample
 
 
@@ -165,6 +177,7 @@ def train_preprocess_fn(input_batch: np.ndarray) -> np.ndarray:
     output_batch = []
     for sample in input_batch:
         sample = random_flip_augmentation(sample, axis=(1, 2))
+        sample = random_rotate_augmentation(sample)
         output_batch.append(sample)
 
     return np.array(output_batch)
@@ -190,7 +203,7 @@ validation_data_generator = UndersamplingIterator(
     batch_size=batch_size,
 )
 
-
+'''
 # We use the VGG16 model
 model = VGG16(
     include_top=True,
@@ -202,16 +215,113 @@ model = VGG16(
     classifier_activation="softmax",
 )
 
+def get_model_3d(width=64, height=64, depth=64, num_classes=num_classes):
+    """
+    Build a 3D convolutional neural network model.
+    """
+    init = tf.keras.initializers.HeNormal()
+
+    inputs_ = tf.keras.Input((width, height, depth))
+    x = layers.Reshape(target_shape=(1, width, height, depth))(inputs_)
+
+    x = layers.BatchNormalization()(x)
+
+    x = layers.Conv3D(filters=32, kernel_size=3, activation="relu", kernel_initializer=init)(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.MaxPool3D(pool_size=2)(x)
+    x = layers.Conv3D(filters=32, kernel_size=3, activation="relu", kernel_initializer=init)(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.MaxPool3D(pool_size=2)(x)
+
+    x = layers.Dropout(0.3)(x)
+
+    x = layers.Conv3D(filters=64, kernel_size=3, activation="relu", kernel_initializer=init)(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.MaxPool3D(pool_size=2)(x)
+
+    x = layers.Dropout(0.3)(x)
+
+    x = layers.Flatten()(x)
+
+    x = layers.Dense(units=512, activation="relu", kernel_initializer=init)(x)
+    x = layers.Dropout(0.3)(x)
+    x = layers.Dense(units=512, activation="relu", kernel_initializer=init)(x)
+    x = layers.Dropout(0.3)(x)
+
+    outputs = layers.Dense(units=num_classes, activation="softmax", kernel_initializer=init)(x)
+
+    # Define the model.
+    model_ = tf.keras.Model(inputs_, outputs, name="3dcnn")
+    return model_
+'''
+
+
+def get_model_2d(width, height, depth, num_classes):
+    """
+    Build a 2D convolutional neural network model.
+    """
+    init = tf.keras.initializers.HeNormal()
+
+    inputs_ = tf.keras.Input((depth, width, height))
+    #x = layers.Reshape(target_shape=(width, height, depth))(inputs_)
+
+    x = layers.BatchNormalization()(inputs_)
+
+    x = layers.Conv2D(filters=32, kernel_size=3, activation="relu", kernel_initializer=init)(x)
+    x = layers.BatchNormalization()(x)
+
+    x = layers.MaxPool2D(pool_size=2)(x)
+    x = layers.Conv2D(filters=32, kernel_size=3, activation="relu", kernel_initializer=init)(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.MaxPool2D(pool_size=2)(x)
+
+    x = layers.Dropout(0.3)(x)
+
+    x = layers.Conv2D(filters=64, kernel_size=3, activation="relu", kernel_initializer=init)(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.MaxPool2D(pool_size=2)(x)
+    x = layers.Conv2D(filters=64, kernel_size=3, activation="relu", kernel_initializer=init)(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.MaxPool2D(pool_size=2)(x)
+
+    x = layers.Dropout(0.3)(x)
+
+    x = layers.Conv2D(filters=128, kernel_size=3, activation="relu", kernel_initializer=init)(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.MaxPool2D(pool_size=2)(x)
+    x = layers.Conv2D(filters=128, kernel_size=3, activation="relu", kernel_initializer=init)(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.MaxPool2D(pool_size=2)(x)
+
+    x = layers.Dropout(0.3)(x)
+
+    x = layers.Flatten()(x)
+
+    x = layers.Dense(units=512, activation="relu", kernel_initializer=init)(x)
+    x = layers.Dropout(0.3)(x)
+    x = layers.Dense(units=512, activation="relu", kernel_initializer=init)(x)
+    x = layers.Dropout(0.3)(x)
+
+    outputs = layers.Dense(units=num_classes, activation="softmax", kernel_initializer=init)(x)
+
+    # Define the model.
+    model_ = tf.keras.Model(inputs_, outputs, name="2dcnn")
+    return model_
+
+print("creating model")
+model = get_model_2d(width=224, height=224, depth=3, num_classes=num_classes)
+
 # Show the model layers
 print(model.summary())
 
 # Load the pretrained imagenet VGG model weights except for the last layer
 # Because the pretrained weights will have a data size mismatch in the last layer of our model
 # two warnings will be raised, but these can be safely ignored.
-model.load_weights(str(PRETRAINED_VGG16_WEIGHTS_FILE), by_name=True, skip_mismatch=True)
+# model.load_weights(str(PRETRAINED_VGG16_WEIGHTS_FILE), by_name=True, skip_mismatch=True)
 
 # Prepare model for training by defining the loss, optimizer, and metrics to use
 # Output labels and predictions are one-hot encoded, so we use the categorical_accuracy metric
+print("preparing model")
 model.compile(
     optimizer=SGD(learning_rate=0.0001, momentum=0.8, nesterov=True),
     loss=categorical_crossentropy,
@@ -220,7 +330,7 @@ model.compile(
 
 # Start actual training process
 output_model_file = (
-    TRAINING_OUTPUT_DIRECTORY / f"vgg16_{problem.value}_best_val_accuracy.h5"
+        TRAINING_OUTPUT_DIRECTORY / f"2dcnn_{problem.value}_best_val_accuracy.h5"
 )
 callbacks = [
     TerminateOnNaN(),
@@ -241,6 +351,7 @@ callbacks = [
         verbose=1,
     ),
 ]
+print("training")
 history = model.fit(
     training_data_generator,
     steps_per_epoch=len(training_data_generator),
@@ -252,10 +363,9 @@ history = model.fit(
     verbose=2,
 )
 
-
 # generate a plot using the training history...
 output_history_img_file = (
-    TRAINING_OUTPUT_DIRECTORY / f"vgg16_{problem.value}_train_plot.png"
+        TRAINING_OUTPUT_DIRECTORY / f"2dcnn_{problem.value}_train_plot.png"
 )
 print(f"Saving training plot to: {output_history_img_file}")
 plt.plot(history.history["categorical_accuracy"])
